@@ -220,6 +220,7 @@ def find_element_by_selectors(soup: BeautifulSoup, selectors: str) -> Optional[A
 def find_elements_by_selectors(soup: BeautifulSoup, selectors: str, limit: int = None) -> List[Any]:
     """
     Cerca elementi usando multipli selettori CSS
+    Versione migliorata con fallback a find_all
     
     Args:
         soup: Oggetto BeautifulSoup
@@ -232,16 +233,56 @@ def find_elements_by_selectors(soup: BeautifulSoup, selectors: str, limit: int =
     if not soup or not selectors:
         return []
     
+    all_elements = []
+    
     for selector in selectors.split(','):
         selector = selector.strip()
         try:
-            elements = soup.select(selector, limit=limit)
+            # Prima prova select() CSS standard
+            elements = soup.select(selector)
             if elements:
-                return elements
-        except Exception:
+                all_elements.extend(elements)
+                continue
+            
+            # Fallback: prova parsing manuale del selettore
+            # Gestisce pattern come "div.class1.class2"
+            if '.' in selector:
+                parts = selector.split('.')
+                tag = parts[0] if parts[0] else 'div'
+                classes = parts[1:]
+                
+                # Trova elementi con tutte le classi
+                for elem in soup.find_all(tag):
+                    elem_classes = elem.get('class', [])
+                    if all(c in elem_classes for c in classes):
+                        all_elements.append(elem)
+            
+            # Fallback: cerca per attributo href
+            elif '[href' in selector:
+                import re as regex_module
+                match = regex_module.search(r'\[href\*="([^"]+)"\]', selector)
+                if match:
+                    pattern = match.group(1)
+                    for a in soup.find_all('a', href=True):
+                        if pattern in a.get('href', ''):
+                            all_elements.append(a)
+            
+        except Exception as e:
+            logger.debug(f"Selector fallback per: {selector} - {e}")
             continue
     
-    return []
+    # Rimuovi duplicati mantenendo ordine
+    seen = set()
+    unique_elements = []
+    for elem in all_elements:
+        elem_id = id(elem)
+        if elem_id not in seen:
+            seen.add(elem_id)
+            unique_elements.append(elem)
+    
+    if limit:
+        return unique_elements[:limit]
+    return unique_elements
 
 # ==============================================================================
 # FUNZIONI PER PULIZIA TESTI

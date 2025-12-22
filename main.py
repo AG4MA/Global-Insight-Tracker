@@ -204,6 +204,7 @@ def _extract_article_data(container, site_config: Dict, base_url: str) -> Option
 def scrape_with_selenium(site_key: str, max_articles: int = None) -> List[Dict[str, str]]:
     """
     Scraping usando Selenium per siti con contenuto dinamico (AJAX)
+    Usa enhanced_scraper per risultati migliori
     
     Args:
         site_key: Chiave del sito
@@ -212,19 +213,6 @@ def scrape_with_selenium(site_key: str, max_articles: int = None) -> List[Dict[s
     Returns:
         Lista di articoli estratti
     """
-    try:
-        from selenium import webdriver
-        from selenium.webdriver.chrome.service import Service
-        from selenium.webdriver.chrome.options import Options
-        from selenium.webdriver.common.by import By
-        from selenium.webdriver.support.ui import WebDriverWait
-        from selenium.webdriver.support import expected_conditions as EC
-        from webdriver_manager.chrome import ChromeDriverManager
-        
-    except ImportError:
-        utils.logger.error("❌ Selenium non installato. Installa con: pip install selenium webdriver-manager")
-        return []
-    
     if max_articles is None:
         max_articles = config.MAX_ARTICLES_PER_SITE
     
@@ -234,61 +222,136 @@ def scrape_with_selenium(site_key: str, max_articles: int = None) -> List[Dict[s
     
     utils.logger.info(f"🌐 Avvio browser headless per {site_config['name']}...")
     
-    # Configura Chrome options
-    chrome_options = Options()
-    if config.SELENIUM_CONFIG['headless']:
-        chrome_options.add_argument('--headless')
+    try:
+        from enhanced_scraper import EnhancedScraper
+        
+        scraper = EnhancedScraper()
+        all_articles = []
+        
+        # URL da scrapare
+        urls = [site_config['insights_url']] + site_config.get('alternative_urls', [])
+        
+        # Determina pattern link in base al sito
+        link_patterns = {
+            'deloitte': '/insights/',
+            'mckinsey': '/featured-insights/',  # McKinsey usa featured-insights
+            'bcg': '/publications/',
+            'pwc': '/insights/',
+            'ey': '/insights/',
+            'kpmg': '/insights/',
+            'accenture': '/insights/',
+            'bain': '/insights/',
+        }
+        link_pattern = link_patterns.get(site_key, '/insights/')
+        
+        try:
+            for url in urls[:3]:  # Max 3 URL per sito
+                try:
+                    html = scraper.fetch_with_js(url, wait_time=8)
+                    articles = scraper.extract_insight_links(
+                        html,
+                        site_config['base_url'],
+                        link_pattern
+                    )
+                    all_articles.extend(articles)
+                    utils.logger.info(f"✓ {url}: {len(articles)} articoli")
+                    
+                    if len(all_articles) >= max_articles * 3:  # Buffer per dedup
+                        break
+                except Exception as e:
+                    utils.logger.warning(f"✗ {url}: {e}")
+        finally:
+            scraper.close()
+        
+        # Deduplica
+        seen = set()
+        unique = []
+        for art in all_articles:
+            if art['url'] not in seen:
+                seen.add(art['url'])
+                unique.append(art)
+        
+        # Converti al formato main.py
+        result = []
+        for art in unique[:max_articles]:
+            result.append(utils.create_article_dict(
+                title=art['title'],
+                source=f"{site_config['name']} - {art['url']}",
+                category=art.get('category', 'General'),
+                description=art.get('description', art['title']),
+                article_date=art.get('date', '')
+            ))
+        
+        utils.logger.info(f"✅ Selenium scraping {site_config['name']}: {len(result)} articoli")
+        return result
+        
+    except ImportError:
+        utils.logger.warning("⚠️  enhanced_scraper non disponibile, uso metodo legacy")
+        return _scrape_with_selenium_legacy(site_key, max_articles)
+
+
+def _scrape_with_selenium_legacy(site_key: str, max_articles: int) -> List[Dict[str, str]]:
+    """Metodo legacy Selenium (fallback)"""
+    try:
+        from selenium import webdriver
+        from selenium.webdriver.chrome.service import Service
+        from selenium.webdriver.chrome.options import Options
+        from selenium.webdriver.common.by import By
+        from selenium.webdriver.support.ui import WebDriverWait
+        from selenium.webdriver.support import expected_conditions as EC
+        from webdriver_manager.chrome import ChromeDriverManager
+    except ImportError:
+        utils.logger.error("❌ Selenium non installato")
+        return []
     
-    for option in config.SELENIUM_CONFIG['chrome_options']:
-        chrome_options.add_argument(option)
+    site_config = config.get_site_config(site_key)
+    if not site_config:
+        return []
+    
+    chrome_options = Options()
+    chrome_options.add_argument('--headless=new')
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-gpu')
     
     driver = None
     articles = []
     
     try:
-        # Inizializza driver
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=chrome_options)
+        driver.set_page_load_timeout(30)
         
-        driver.set_page_load_timeout(config.SELENIUM_CONFIG['page_load_timeout'])
-        driver.implicitly_wait(config.SELENIUM_CONFIG['implicit_wait'])
-        
-        # Carica pagina
         url = site_config['insights_url']
-        utils.logger.info(f"📄 Caricamento pagina: {url}")
+        utils.logger.info(f"📄 Caricamento: {url}")
         driver.get(url)
         
-        # Attendi caricamento contenuto dinamico
-        try:
-            selectors = site_config['selectors']
-            first_selector = selectors['article_container'].split(',')[0].strip()
-            
-            WebDriverWait(driver, 15).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, first_selector))
-            )
-        except Exception:
-            utils.logger.warning("⏱️  Timeout attesa elementi, proseguo comunque...")
-        
-        # Scroll per caricare lazy content
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         import time
+        time.sleep(8)
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
         time.sleep(2)
         
-        # Estrai HTML e processa con BeautifulSoup
         html = driver.page_source
         soup = utils.parse_html(html)
         
         if soup:
-            # Usa la stessa logica di scraping standard
-            articles = _scrape_url(site_config, url, max_articles)
-        
+            selectors = site_config['selectors']
+            containers = utils.find_elements_by_selectors(
+                soup, selectors['article_container'], limit=max_articles
+            )
+            
+            for container in containers:
+                try:
+                    article_data = _extract_article_data(container, site_config, url)
+                    if article_data and utils.validate_article_data(article_data):
+                        articles.append(article_data)
+                except Exception:
+                    continue
+                    
     except Exception as e:
-        utils.logger.error(f"❌ Errore Selenium per {site_key}: {e}")
-    
+        utils.logger.error(f"❌ Errore Selenium: {e}")
     finally:
         if driver:
             driver.quit()
-            utils.logger.info("🔚 Browser chiuso")
     
     return articles
 

@@ -64,7 +64,7 @@ HEADERS = {
 
 SITES_CONFIG = {
     # --------------------------------------------------------------------------
-    # DELOITTE
+    # DELOITTE - Aggiornato 23/12/2025 con selettori reali
     # --------------------------------------------------------------------------
     'deloitte': {
         'name': 'Deloitte',
@@ -73,19 +73,20 @@ SITES_CONFIG = {
         'alternative_urls': [
             'https://www2.deloitte.com/us/en/insights/focus/tech-trends.html',
             'https://www2.deloitte.com/us/en/insights/topics/digital-transformation.html',
-            'https://www2.deloitte.com/us/en/insights/focus/industry-4-0.html'
+            'https://www2.deloitte.com/us/en/insights/industry/technology.html'
         ],
         'selectors': {
-            # Selettori per articoli principali
-            'article_container': 'div.cmp-card, article.insight-card, div.insight-item',
-            'title': 'h3.cmp-card__title, h2.insight-title, a.insight-link',
-            'link': 'a.cmp-card__link, a.insight-link',
-            'date': 'time, span.date, div.publish-date, p.date',
-            'category': 'span.topic, span.category, a.topic-tag',
-            'description': 'p.cmp-card__description, div.insight-summary, p.summary'
+            # Pattern link-based - estrai tutti link /insights/ poi deduplicating
+            'article_container': 'a[href*="/insights/"]',
+            'title': 'span, h2, h3, h4',  # Cerca testo dentro il link
+            'link': '',  # L'elemento stesso è il link
+            'date': 'time, span.date',
+            'category': 'span.category, span.topic',
+            'description': 'p, span.description'
         },
-        'date_format': '%B %d, %Y',  # es. "December 15, 2025"
-        'requires_selenium': False
+        'extraction_mode': 'link_based',  # Nuovo: estrai da link invece che da container
+        'date_format': '%B %d, %Y',
+        'requires_selenium': True  # Richiede JS rendering
     },
 
     # --------------------------------------------------------------------------
