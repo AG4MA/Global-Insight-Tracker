@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+logs/*.log
+*.log
+
+# Output files
+output/*.xlsx
+output/*.csv
+!output/.gitkeep
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Selenium
+*.log
+geckodriver.log
+chromedriver.log
+
+# Environment variables
+.env
+.env.local
+
+# Temporary files
+*.tmp
+*.temp
+~$*.xlsx
